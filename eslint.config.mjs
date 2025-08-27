@@ -19,8 +19,16 @@ export default [
     files: ["**/*.ts"],
     plugins: { import: pluginImport },
     rules: {
-      // keep your import ordering from before
       "import/order": ["error", { "newlines-between": "always" }],
+      // ignore unused params that start with underscore (e.g., _next)
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+        },
+      ],
     },
   },
 
