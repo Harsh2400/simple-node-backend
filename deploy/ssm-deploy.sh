@@ -52,7 +52,7 @@ export PATH="$PATH:/usr/bin:/usr/local/bin"
 su - ubuntu -c "pm2 delete simple-node-backend || true"
 
 # Start using the symlinked release with updated environment
-su - ubuntu -c "pm2 startOrReload '$APP_DIR/ecosystem.config.js' --only simple-node-backend"
+su - ubuntu -c "pm2 startOrReload '$CURRENT_LINK/ecosystem.config.js' --only simple-node-backend"
 su - ubuntu -c "pm2 save" || true
 
 # 7️⃣ Health check with retries
