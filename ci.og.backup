@@ -4,6 +4,28 @@ on:
     branches: [ main ]
   pull_request:
 
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+---------------Debugged Final Pipeline-----------
+
+name: ci
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
 permissions:
   contents: read
   id-token: write
@@ -13,65 +35,57 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint:
+  build-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     steps:
-      - uses: ./.github/actions/setup-node-env
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
       - run: npm run lint --if-present
-
-  test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: ./.github/actions/setup-node-env
       - run: npm test --if-present
-
-  build_check:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: ./.github/actions/setup-node-env
       - run: npm run build --if-present
 
   deploy:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: [lint, test, build_check]
+    needs: build-test
     runs-on: ubuntu-latest
-    environment: production
-    timeout-minutes: 60
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       ARTIFACT_BUCKET: ${{ vars.ARTIFACT_BUCKET }}
       PARAM_PATH: ${{ vars.PARAM_PATH }}
       APP_DIR: ${{ vars.APP_DIR }}
       SERVICE_PORT: ${{ vars.SERVICE_PORT }}
-      ACCOUNT_ID: ${{ vars.ACCOUNT_ID }}
     steps:
-      - uses: ./.github/actions/setup-node-env
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
       - run: npm run build --if-present
 
       - name: Create release zip
         run: |
-          set -euo pipefail
           mkdir -p artifact
           cp -r dist package.json package-lock.json ecosystem.config.js artifact/
           cd artifact && zip -r ../release.zip . && cd -
           echo "S3_KEY=releases/$(git rev-parse --short HEAD).zip" >> $GITHUB_ENV
 
       - name: Configure AWS (OIDC)
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: 'arn:aws:iam::${{ env.ACCOUNT_ID }}:role/HarshGitHubActionsDeployer'
+          role-to-assume: arn:aws:iam::390847198265:role/GitHubActionsDeployer
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Upload artifact to S3
-        run: aws s3 cp release.zip "s3://${{ ARTIFACT_BUCKET }}/${{ S3_KEY }}"
+        run: aws s3 cp release.zip "s3://${{ env.ARTIFACT_BUCKET }}/${{ env.S3_KEY }}"
 
       - name: Resolve instance IDs by tags
         id: ids
         run: |
-          set -euo pipefail
           IDS=$(aws ec2 describe-instances \
             --filters "Name=tag:App,Values=simple-node-backend" "Name=tag:Env,Values=prod" "Name=instance-state-name,Values=running" \
             --query "Reservations[].Instances[].InstanceId" --output text)
@@ -79,37 +93,22 @@ jobs:
           echo "ids=$IDS" >> $GITHUB_OUTPUT
 
       - name: Bootstrap prerequisites on instance (Ubuntu)
-        id: bootstrap
         run: |
-          CMD_ID=$(aws ssm send-command \
+          aws ssm send-command \
             --document-name "AWS-RunShellScript" \
-            --instance-ids ${{ steps.ids.outputs.ids }} \
+            --targets "Key=tag:Role,Values=simple-node-backend" \
             --comment "Bootstrap prerequisites" \
-            --parameters 'commands=["/bin/bash -c \"set -euo pipefail; \
+            --parameters 'commands=["/bin/bash -c \"set -eu; \
               export DEBIAN_FRONTEND=noninteractive; \
               mkdir -p '"${APP_DIR}"'/releases; \
               apt-get update -y; \
-              apt-get install -y curl ca-certificates gnupg unzip awscli; \
+              apt-get install -y curl ca-certificates gnupg unzip; \
               if ! command -v node >/dev/null 2>&1; then \
                 curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs; \
               fi; \
               if ! command -v pm2 >/dev/null 2>&1; then \
                 npm i -g pm2; \
-              fi\""]' \
-            --query "Command.CommandId" --output text)
-          echo "cmd=$CMD_ID" >> $GITHUB_OUTPUT
-
-      - name: Wait for bootstrap per instance
-        run: |
-          set -euo pipefail 
-          for ID in ${{ steps.ids.outputs.ids }}; do
-            echo "⏳ Waiting for bootstrap on $ID ..."
-            aws ssm wait command-executed --command-id "${{ steps.bootstrap.outputs.cmd }}" --instance-id "$ID"
-            STATUS=$(aws ssm get-command-invocation --command-id "${{ steps.bootstrap.outputs.cmd }}" --instance-id "$ID" --query "Status" --output text)
-            echo "$ID => $STATUS"
-            test "$STATUS" = "Success"
-          done
-
+              fi\""]' >/dev/null
 
       - name: Upload deploy script to S3
         run: aws s3 cp deploy/ssm-deploy.sh "s3://${ARTIFACT_BUCKET}/releases/ssm-deploy.sh"
@@ -119,9 +118,9 @@ jobs:
         run: |
           CMD_ID=$(aws ssm send-command \
             --document-name "AWS-RunShellScript" \
-            --instance-ids ${{ steps.ids.outputs.ids }} \
+            --targets "Key=tag:Role,Values=simple-node-backend" \
             --comment "Deploy ${{ env.S3_KEY }}" \
-            --parameters 'commands=["/bin/bash -c \"set -euo pipefail; \
+            --parameters 'commands=["/bin/bash -c \"set -eu; \
               mkdir -p /opt/tmp && cd /opt/tmp; \
               aws s3 cp s3://'${ARTIFACT_BUCKET}'/releases/ssm-deploy.sh /opt/tmp/ssm-deploy.sh; \
               chmod +x /opt/tmp/ssm-deploy.sh; \
@@ -131,25 +130,12 @@ jobs:
 
       - name: Wait and verify per instance
         run: |
-          set -euo pipefail
-          mkdir -p ssm-logs
           for ID in ${{ steps.ids.outputs.ids }}; do
             echo "⏳ Waiting for deploy on $ID ..."
             aws ssm wait command-executed --command-id "${{ steps.ssm.outputs.cmd }}" --instance-id "$ID"
             STATUS=$(aws ssm get-command-invocation --command-id "${{ steps.ssm.outputs.cmd }}" --instance-id "$ID" --query "Status" --output text)
             echo "$ID => $STATUS"
-            # collect logs for debugging
-            aws ssm get-command-invocation --command-id "${{ steps.ssm.outputs.cmd }}" --instance-id "$ID" --query "StandardOutputContent" --output text > "ssm-logs/${ID}-stdout.txt" || true
-            aws ssm get-command-invocation --command-id "${{ steps.ssm.outputs.cmd }}" --instance-id "$ID" --query "StandardErrorContent"  --output text > "ssm-logs/${ID}-stderr.txt" || true
             test "$STATUS" = "Success"
           done
 
-      - name: Upload SSM outputs
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ssm-outputs-${{ github.run_id }}
-          path: |
-            ssm-logs/**
-            release.zip
-          if-no-files-found: ignore
+-----------------          
