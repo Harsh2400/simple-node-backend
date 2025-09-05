@@ -6,6 +6,6 @@ import { logger } from "./lib/logger";
 const env = loadEnv();
 const app = buildApp();
 
-app.listen(env.PORT, '0.0.0.0' ,() => {
+app.listen(env.PORT, '0.0.0.0' ,() => { //port binding
   logger.info({ port: env.PORT, env: env.NODE_ENV }, "server started");
 });
