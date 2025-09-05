@@ -51,6 +51,7 @@ jobs:
       SERVICE_PORT: ${{ vars.SERVICE_PORT }}
       ACCOUNT_ID: ${{ vars.ACCOUNT_ID }}
     steps:
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-node-env
       - run: npm run build --if-present
 
