@@ -66,7 +66,7 @@ jobs:
       - name: Configure AWS (OIDC)
         uses: aws-actions/configure-aws-credentials@v4 # v4.3.1
         with:
-          role-to-assume: 'arn:aws:iam::390847198265:role/GitHubActionsDeployer'
+          role-to-assume: arn:aws:iam::390847198265:role/GitHubActionsDeployer
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Upload artifact to S3
