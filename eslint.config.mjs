@@ -6,7 +6,8 @@ import eslintConfigPrettier from "eslint-config-prettier";
 
 export default [
   // ignore build artifacts
-  { ignores: ["dist/**", "node_modules/**"] },
+  //{ ignores: ["dist/**", "node_modules/**"] },
+  { ignores: ["dist/**", "node_modules/**", "ecosystem.config.js", "deploy/**"] },
 
   // JS recommended
   js.configs.recommended,
