@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - uses: actions/checkout@v4           # <-- required so the runner can see ./.github/actions/... local action before checkout
       - uses: ./.github/actions/setup-node-env
       - run: npm run lint --if-present
 
@@ -24,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - uses: actions/checkout@v4           # <-- required so the runner can see ./.github/actions/...
       - uses: ./.github/actions/setup-node-env
       - run: npm test --if-present
 
@@ -31,6 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - uses: actions/checkout@v4           # <-- required so the runner can see ./.github/actions/...
       - uses: ./.github/actions/setup-node-env
       - run: npm run build --if-present
 
